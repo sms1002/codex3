@@ -1,0 +1,25 @@
+# Dependencies and generated builds
+node_modules/
+dist/
+release/
+
+# Python environments and caches
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Local secrets and settings
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.codex/
+
+# Logs and operating system files
+*.log
+.DS_Store
+Thumbs.db
+Desktop.ini
