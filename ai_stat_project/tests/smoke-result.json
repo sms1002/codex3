@@ -1,4 +1,48 @@
 {
+  "analysisChecks": [
+    {
+      "method": "describe",
+      "error": "",
+      "visible": true,
+      "report": true
+    },
+    {
+      "method": "welch",
+      "error": "",
+      "visible": true,
+      "report": true
+    },
+    {
+      "method": "anova",
+      "error": "",
+      "visible": true,
+      "report": true
+    },
+    {
+      "method": "pearson",
+      "error": "",
+      "visible": true,
+      "report": true
+    },
+    {
+      "method": "spearman",
+      "error": "",
+      "visible": true,
+      "report": true
+    },
+    {
+      "method": "regression",
+      "error": "",
+      "visible": true,
+      "report": true
+    },
+    {
+      "method": "chi",
+      "error": "",
+      "visible": true,
+      "report": true
+    }
+  ],
   "title": "AI 통계 분석 도우미",
   "heading": "AI 통계 분석 도우미",
   "sourceRows": 121,
