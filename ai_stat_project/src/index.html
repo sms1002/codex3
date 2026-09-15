@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:;" />
+    <title>AI 통계 분석 도우미</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="analysis.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">Σ</div>
+          <div><strong>StatPilot</strong><span>AI DATA LAB</span></div>
+        </div>
+        <nav>
+          <button class="nav-item active" data-section="workspace"><span>⌁</span>분석 작업실</button>
+          <button class="nav-item" data-section="guide"><span>?</span>사용 안내</button>
+        </nav>
+        <div class="sidebar-card">
+          <span class="eyebrow">DESKTOP EDITION</span>
+          <strong>데이터는 PC 안에서만</strong>
+          <p>선택한 CSV는 외부 서버로 전송되지 않습니다.</p>
+        </div>
+        <div class="version">v1.1.0 · 무료 오프라인 분석</div>
+      </aside>
+
+      <main>
+        <header class="topbar">
+          <div><span class="eyebrow">ANALYSIS WORKSPACE</span><h1>AI 통계 분석 도우미</h1></div>
+          <div class="status"><i></i>로컬 분석 모드</div>
+        </header>
+
+        <section id="workspace" class="page-section active">
+          <div id="emptyState" class="hero-card">
+            <div class="hero-copy">
+              <span class="badge">OFFLINE STATISTICS</span>
+              <h2>복잡한 데이터 정리를<br /><em>한 번의 흐름</em>으로.</h2>
+              <p>CSV를 불러오면 데이터 정리부터 분석 방법 추천, 통계 검정, 그래프와 한국어 해석까지 한곳에서 진행합니다.</p>
+              <button id="openButton" class="primary-button">CSV 파일 불러오기 <span>→</span></button>
+              <small>UTF-8 및 CP949 인코딩 지원</small>
+            </div>
+            <div class="data-art" aria-hidden="true">
+              <div class="orbit orbit-a"></div><div class="orbit orbit-b"></div>
+              <div class="core">Σ</div>
+              <div class="chip chip-a">μ <b>72.4</b></div><div class="chip chip-b">IQR <b>1.5×</b></div><div class="chip chip-c">N <b>1,284</b></div>
+            </div>
+          </div>
+
+          <div id="dashboard" class="dashboard hidden">
+            <div class="file-strip">
+              <div><span class="file-icon">CSV</span><div><strong id="fileName"></strong><small id="fileMeta"></small></div></div>
+              <button id="changeFileButton" class="secondary-button">다른 파일 열기</button>
+            </div>
+            <div id="metricCards" class="metric-grid"></div>
+            <section class="panel analysis-panel">
+              <div class="panel-heading"><div><span class="step">분석 도우미</span><h3>무엇을 알아보고 싶으세요?</h3></div><span class="type-pill">규칙 기반 자동 해석 · 무료</span></div>
+              <p class="analysis-help">분석 목적을 고르고 변수를 선택하세요. 숫자로 저장된 학년·집단 코드도 집단 변수로 직접 선택할 수 있습니다.</p>
+              <div class="analysis-controls">
+                <label>분석 데이터<select id="analysisSource"><option value="original">원본 데이터</option><option value="cleaned" disabled>전처리된 데이터 (전처리 후 사용)</option></select></label>
+                <label>분석 목적<select id="analysisMethod"><option value="describe">분포 요약 · 기술통계</option><option value="welch">두 집단 평균 비교 · Welch t검정</option><option value="anova">세 집단 이상 평균 비교 · ANOVA</option><option value="pearson">두 숫자 변수의 선형 관계 · Pearson</option><option value="spearman">두 숫자 변수의 순위 관계 · Spearman</option><option value="regression">숫자 변수로 결과 설명 · 선형회귀</option><option value="chi">두 범주형 변수의 관계 · 카이제곱</option></select></label>
+                <label><span id="analysisXLabel">수치형 변수</span><select id="analysisX"></select></label>
+                <label id="analysisYWrap"><span id="analysisYLabel">결과 변수</span><select id="analysisY"></select></label>
+              </div>
+              <div id="recommendations" class="recommendations" aria-label="추천 분석"></div>
+              <p id="analysisHint" class="analysis-help"></p>
+              <button id="analyzeButton" class="primary-button">통계 분석 실행 →</button>
+              <p id="analysisError" class="analysis-error" role="alert"></p>
+              <div id="analysisResult" class="hidden" aria-live="polite">
+                <div class="panel-heading"><div><h3 id="analysisTitle"></h3></div><button id="exportAnalysis" class="secondary-button">분석 보고서 저장</button></div>
+                <p id="analysisMeta" class="analysis-help"></p>
+                <div id="analysisMetrics" class="metric-grid"></div>
+                <div id="analysisInterpretation" class="interpretation"></div>
+                <figure class="analysis-figure"><canvas id="analysisChart" width="1000" height="380" role="img" aria-label="분석 결과 그래프"></canvas><figcaption id="chartCaption"></figcaption></figure>
+                <div id="analysisTable" class="table-wrap"></div>
+                <div id="analysisWarnings" class="analysis-warnings"></div>
+              </div>
+            </section>
+            <div class="content-grid">
+              <section class="panel wide">
+                <div class="panel-heading"><div><span class="step">01</span><h3>원본 데이터 미리보기</h3></div><span id="previewCount" class="muted"></span></div>
+                <div id="previewTable" class="table-wrap"></div>
+              </section>
+              <section class="panel">
+                <div class="panel-heading"><div><span class="step">02</span><h3>변수 유형</h3></div></div>
+                <div id="typeTable" class="table-wrap compact"></div>
+              </section>
+              <section class="panel">
+                <div class="panel-heading"><div><span class="step">03</span><h3>결측치 검사</h3></div></div>
+                <div id="missingTable" class="table-wrap compact"></div>
+              </section>
+              <section class="panel wide">
+                <div class="panel-heading"><div><span class="step">04</span><h3>이상치 탐지</h3></div><span class="muted">IQR 기준</span></div>
+                <div id="outlierTable" class="table-wrap compact"></div>
+              </section>
+              <section class="panel wide control-panel">
+                <div class="panel-heading"><div><span class="step">05</span><h3>전처리 설정</h3></div></div>
+                <div class="controls">
+                  <label>결측치 처리<select id="missingMethod"><option value="median_mode">수치형=중앙값 / 범주형=최빈값</option><option value="drop">결측치가 있는 행 삭제</option><option value="none">처리하지 않음</option></select></label>
+                  <label>이상치 처리<select id="outlierMethod"><option value="none">처리하지 않음</option><option value="clip">IQR 경계값으로 조정</option><option value="remove">이상치가 있는 행 제거</option></select></label>
+                  <button id="runButton" class="primary-button">전처리 실행 <span>→</span></button>
+                </div>
+              </section>
+              <section id="resultPanel" class="panel wide result-panel hidden">
+                <div class="panel-heading"><div><span class="success-dot">✓</span><h3>전처리 완료</h3></div><button id="saveButton" class="primary-button small">CSV로 저장</button></div>
+                <div id="resultMetrics" class="result-metrics"></div><div id="actionLog" class="action-log"></div><div id="resultTable" class="table-wrap"></div>
+              </section>
+            </div>
+          </div>
+        </section>
+
+        <section id="guide" class="page-section guide-page">
+          <span class="eyebrow">QUICK GUIDE</span><h2>데이터에서 해석까지</h2>
+          <p class="analysis-help">CSV 불러오기 → 추천 분석 또는 분석 목적 선택 → 변수 확인 → 통계 분석 실행. 원본 데이터가 기본이며 전처리 후에는 분석 데이터를 직접 바꿀 수 있습니다. 보고서는 HTML 파일로 저장해 브라우저에서 열거나 인쇄할 수 있습니다. 이 버전의 한국어 설명은 계산 결과에 따른 규칙 기반 해석이며 생성형 AI 모델은 사용하지 않습니다. 분석 방법의 가정은 자동 검증하지 않으므로 결과의 확인 사항을 함께 읽어주세요.</p>
+          <div class="guide-grid"><article><b>01</b><h3>CSV 불러오기</h3><p>분석할 파일을 선택하면 열 유형과 데이터 품질을 즉시 점검합니다.</p></article><article><b>02</b><h3>처리 방법 선택</h3><p>결측치 대체 또는 삭제, 이상치 조정 또는 삭제 방식을 선택합니다.</p></article><article><b>03</b><h3>결과 저장</h3><p>처리 결과와 작업 내역을 확인한 뒤 새 CSV 파일로 저장합니다.</p></article></div>
+        </section>
+      </main>
+    </div>
+    <div id="toast" class="toast"></div>
+    <script src="csv.js"></script>
+    <script src="renderer.js"></script>
+    <script src="analysis.js"></script>
+    <script src="analysis-ui.js"></script>
+  </body>
+</html>
