@@ -32,10 +32,14 @@
         field += char;
       }
     }
+    if (quoted) throw new Error('닫히지 않은 따옴표가 있습니다.');
     record.push(field);
     if (record.some((value) => value.trim() !== '')) records.push(record);
 
     const columns = (records.shift() || []).map((value) => value.trim());
+    if (columns.some((column) => !column)) throw new Error('빈 변수 이름이 있습니다.');
+    if (new Set(columns).size !== columns.length) throw new Error('중복된 변수 이름이 있습니다.');
+    if (records.some((values) => values.length !== columns.length)) throw new Error('행마다 열 개수가 다릅니다.');
     const rows = records.map((values) => Object.fromEntries(columns.map((column, index) => [column, values[index] ?? ''])));
     return { columns, rows };
   }

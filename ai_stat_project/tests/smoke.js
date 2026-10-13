@@ -1,80 +1,112 @@
-const { app, BrowserWindow } = require('electron');
-const path = require('path');
-const fs = require('fs/promises');
+// Exercises the real main process, preload, renderer and file dialogs.
+const { app, BrowserWindow, dialog, session } = require('electron');
+const fs = require('node:fs/promises');
+const path = require('node:path');
 const assert = require('node:assert/strict');
+const project = path.join(__dirname, '..');
+const artifacts = path.join(__dirname, 'artifacts');
+const sample = path.join(project, 'data', 'sample_student_data.csv');
+const openQueue = [], saveQueue = [], errors = [], networkRequests = [];
+const originalOpen = dialog.showOpenDialog, originalSave = dialog.showSaveDialog;
+dialog.showOpenDialog = async () => { assert.ok(openQueue.length, 'Unexpected open dialog'); return openQueue.shift(); };
+dialog.showSaveDialog = async () => { assert.ok(saveQueue.length, 'Unexpected save dialog'); return saveQueue.shift(); };
+require('../main.js');
 
 app.whenReady().then(async () => {
   try {
-  const win = new BrowserWindow({
-    width: 1440,
-    height: 920,
-    show: false,
-    webPreferences: {
-      preload: path.join(__dirname, '..', 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true
+    await fs.mkdir(artifacts, { recursive: true });
+    session.defaultSession.webRequest.onBeforeRequest({urls:['http://*/*','https://*/*']},(details,callback)=>{ networkRequests.push(details.url); callback({cancel:true}); });
+    setTimeout(() => { console.error('Electron smoke test timed out'); app.exit(2); }, 30000).unref();
+    const win = BrowserWindow.getAllWindows()[0];
+    if (win.webContents.isLoading()) await new Promise(resolve => win.webContents.once('did-finish-load', resolve));
+    win.showInactive();
+    win.webContents.on('console-message', (_event, level, message) => { if (level >= 2) errors.push(message); });
+    win.webContents.on('render-process-gone', (_event, details) => errors.push(`Renderer: ${details.reason}`));
+    const js = code => win.webContents.executeJavaScript(code);
+    const click = selector => js(`document.querySelector(${JSON.stringify(selector)}).click()`);
+    const set = (selector, value) => js(`(() => { const e=document.querySelector(${JSON.stringify(selector)});e.value=${JSON.stringify(value)};e.dispatchEvent(new Event('change',{bubbles:true})); })()`);
+    const wait = async (code, name) => { for (let i=0;i<100;i++) { if (await js(code)) return; await new Promise(resolve=>setTimeout(resolve,50)); } throw new Error(`Timed out: ${name}`); };
+    const checks = [];
+    async function load(file) { openQueue.push({ canceled: false, filePaths: [file] }); await click('#openButton'); await wait(`document.querySelector('#fileName').textContent===${JSON.stringify(path.basename(file))}`, `open ${file}`); }
+    async function analyze(method,x,y) { await set('#analysisMethod',method); await set('#analysisX',x); if(y) await set('#analysisY',y); await click('#analyzeButton'); assert.equal(await js("document.querySelector('#analysisError').textContent"),'',method); assert.ok(await js("StatAnalysisUI.reportHtml()?.includes('data:image/png')"),method); }
+    async function invalidated(name) { assert.equal(await js('StatAnalysisUI.reportHtml()'),null,name); assert.ok(await js("document.querySelector('#analysisResult').classList.contains('hidden')"),name); checks.push(name); }
+    assert.equal(require('../package.json').version,'1.1.0');
+    assert.equal(await js("typeof desktopAPI.openCsv + '/' + typeof desktopAPI.saveReport"),'function/function');
+    await load(sample);
+    assert.equal(await js('sourceData.length'),121);
+    for (const [method,x,y] of [['describe','시험점수'],['welch','성별','시험점수'],['anova','학년','시험점수'],['pearson','공부시간','시험점수'],['spearman','공부시간','시험점수'],['regression','공부시간','시험점수'],['chi','성별','학년']]) { await analyze(method,x,y); checks.push(method); }
+    await analyze('regression','공부시간','시험점수');
+    await js('window.scrollTo(0,0)'); await fs.writeFile(path.join(artifacts,'desktop-smoke.png'),(await win.capturePage()).toPNG());
+    await js("document.querySelector('#analysisResult').scrollIntoView({block:'start'})"); await fs.writeFile(path.join(artifacts,'analysis-result.png'),(await win.capturePage()).toPNG());
+    const report = await js('StatAnalysisUI.reportHtml()');
+    const reportPath=path.join(artifacts,'sample-analysis-report.html');
+    saveQueue.push({canceled:false,filePath:reportPath}); await click('#exportAnalysis');
+    await wait("document.querySelector('#toast').textContent==='분석 보고서를 저장했습니다.'",'save report');
+    assert.equal(await fs.readFile(reportPath,'utf8'),report);
+    const reportWin=new BrowserWindow({show:false,webPreferences:{sandbox:true,nodeIntegration:false,contextIsolation:true}});
+    await reportWin.loadFile(reportPath);
+    assert.ok(await reportWin.webContents.executeJavaScript("document.querySelector('img').complete && document.querySelector('img').naturalWidth===1000"));
+    assert.equal(await reportWin.webContents.executeJavaScript('document.scripts.length'),0);
+    await fs.writeFile(path.join(artifacts,'report-preview.png'),(await reportWin.capturePage()).toPNG());
+    reportWin.destroy(); checks.push('report save, reopen and embedded graph');
+    saveQueue.push({canceled:true}); await click('#exportAnalysis');
+    assert.equal(await js('StatAnalysisUI.reportHtml()'),report); checks.push('report save cancellation');
+    saveQueue.push({canceled:false,filePath:artifacts}); await click('#exportAnalysis');
+    await wait("document.querySelector('#analysisError').textContent.includes('보고서 저장 실패')",'report write failure');
+    assert.equal(await js('StatAnalysisUI.reportHtml()'),report); checks.push('report write failure');
+    await click('#runButton'); await invalidated('preprocessing resets report');
+    assert.equal(await js('cleanedData.length'),120);
+    await set('#analysisSource','cleaned'); await analyze('describe','시험점수');
+    assert.match(await js('StatAnalysisUI.reportHtml()'),/전처리된 데이터/);
+    await set('#analysisSource','original'); await invalidated('source switch resets report');
+    await set('#analysisSource','cleaned'); await analyze('describe','시험점수');
+    await click('#runButton'); await invalidated('preprocessing rerun resets report');
+    const expected=await js('Csv.unparse(columns,cleanedData)');
+    const csvPath=path.join(artifacts,'cleaned_data.csv');
+    saveQueue.push({canceled:false,filePath:csvPath}); await click('#saveButton');
+    await wait("document.querySelector('#toast').textContent==='전처리 결과를 저장했습니다.'",'save CSV');
+    assert.equal(await fs.readFile(csvPath,'utf8'),'\uFEFF'+expected); checks.push('cleaned CSV save');
+    await analyze('describe','시험점수'); const beforeCancel=await js('StatAnalysisUI.reportHtml()');
+    openQueue.push({canceled:true}); await click('#changeFileButton');
+    assert.equal(await js('StatAnalysisUI.reportHtml()'),beforeCancel); checks.push('open cancellation retains data');
+    for (const [name, content] of [['empty.csv',''],['duplicate.csv','x,x\n1,2'],['ragged.csv','x,y\n1,2,3'],['quote.csv','x,y\n1,"unfinished']]) {
+      const file=path.join(artifacts,name); await fs.writeFile(file,content);
+      await js("document.querySelector('#toast').textContent=''");
+      openQueue.push({canceled:false,filePaths:[file]}); await click('#changeFileButton');
+      await wait("document.querySelector('#toast').textContent.includes('읽을 수') || document.querySelector('#toast').textContent.includes('불러오기 실패')",name);
+      assert.equal(await js('StatAnalysisUI.reportHtml()'),beforeCancel,name); checks.push(`invalid CSV: ${name}`);
     }
-  });
-
-  const errors = [];
-  win.webContents.on('console-message', (_event, level, message) => {
-    if (level >= 2) errors.push(message);
-  });
-
-  await win.loadFile(path.join(__dirname, '..', 'src', 'index.html'));
-  const csv = await fs.readFile(path.join(__dirname, '..', 'data', 'sample_student_data.csv'), 'utf8');
-  const state = await win.webContents.executeJavaScript(`(() => {
-    const parsed = Csv.parse(${JSON.stringify(csv)});
-    columns = parsed.columns;
-    sourceData = parsed.rows;
-    window.dispatchEvent(new Event('dataset:loaded'));
-    document.querySelector('#emptyState').classList.add('hidden');
-    document.querySelector('#dashboard').classList.remove('hidden');
-    document.querySelector('#fileName').textContent = 'sample_student_data.csv';
-    renderDashboard();
-    preprocess();
-    window.scrollTo(0, 0);
-    const analysisChecks = [];
-    for (const [method, x, y] of [['describe','시험점수',''],['welch','성별','시험점수'],['anova','학년','시험점수'],['pearson','공부시간','시험점수'],['spearman','공부시간','시험점수'],['regression','공부시간','시험점수'],['chi','성별','학년']]) {
-      document.querySelector('#analysisMethod').value = method;
-      StatAnalysisUI.updateVariables();
-      document.querySelector('#analysisX').value = x;
-      if (y) document.querySelector('#analysisY').value = y;
-      document.querySelector('#analyzeButton').click();
-      analysisChecks.push({ method, error: document.querySelector('#analysisError').textContent, visible: !document.querySelector('#analysisResult').classList.contains('hidden'), report: StatAnalysisUI.reportHtml()?.includes('data:image/png') });
-    }
-    document.querySelector('#analysisMethod').value = 'regression';
-    StatAnalysisUI.updateVariables();
-    document.querySelector('#analysisX').value = '공부시간';
-    document.querySelector('#analysisY').value = '시험점수';
-    document.querySelector('#analyzeButton').click();
-    return {
-      analysisChecks,
-      title: document.title,
-      heading: document.querySelector('h1')?.textContent,
-      sourceRows: sourceData.length,
-      cleanedRows: cleanedData.length,
-      resultVisible: !document.querySelector('#resultPanel').classList.contains('hidden'),
-      desktopApiReady: typeof window.desktopAPI?.openCsv === 'function'
-    };
-  })()`);
-  state.analysisChecks.forEach(check => { assert.equal(check.error, '', check.method); assert.ok(check.visible && check.report, check.method); });
-  assert.equal(state.desktopApiReady, true);
-  await win.webContents.executeJavaScript('window.scrollTo(0,0)');
-  const image = await win.capturePage();
-  await fs.writeFile(path.join(__dirname, 'desktop-smoke.png'), image.toPNG());
-  await win.webContents.executeJavaScript("document.querySelector('#analysisResult').scrollIntoView({block:'start'})");
-  await fs.writeFile(path.join(__dirname, 'analysis-result.png'), (await win.capturePage()).toPNG());
-  const report = await win.webContents.executeJavaScript('StatAnalysisUI.reportHtml()');
-  await fs.writeFile(path.join(__dirname, 'sample-analysis-report.html'), report, 'utf8');
-  const reset = await win.webContents.executeJavaScript(`(() => { sourceData = [{newColumn:1},{newColumn:2}]; columns = ['newColumn']; cleanedData = []; window.dispatchEvent(new Event('dataset:loaded')); return { hidden: document.querySelector('#analysisResult').classList.contains('hidden'), disabled: document.querySelector('#analysisSource').options[1].disabled, emptyReport: StatAnalysisUI.reportHtml() === null }; })()`);
-  assert.ok(reset.hidden && reset.disabled && reset.emptyReport);
-  assert.equal(errors.length, 0);
-  await fs.writeFile(path.join(__dirname, 'smoke-result.json'), JSON.stringify({ ...state, errors }, null, 2));
-    app.quit();
-  } catch (error) {
-    await fs.writeFile(path.join(__dirname, 'smoke-result.json'), JSON.stringify({ error: error.stack || String(error) }, null, 2));
-    app.exit(1);
-  }
+    await js("document.querySelector('#toast').textContent=''");
+    openQueue.push({canceled:false,filePaths:[path.join(artifacts,'missing-file.csv')]}); await click('#changeFileButton');
+    await wait("document.querySelector('#toast').textContent.includes('불러오기 실패')",'read failure');
+    assert.equal(await js('StatAnalysisUI.reportHtml()'),beforeCancel); checks.push('read error preserves data');
+    await js("document.querySelector('#toast').textContent=''");
+    saveQueue.push({canceled:false,filePath:artifacts}); await click('#saveButton');
+    await wait("document.querySelector('#toast').textContent.includes('저장 실패')",'CSV write failure'); checks.push('CSV write failure');
+    const second=path.join(artifacts,'second.csv'); await fs.writeFile(second,'group,value\nA,1\nB,2\nA,3\nB,4');
+    await load(second); await invalidated('new dataset resets report');
+    assert.equal(await js("document.querySelector('#analysisSource').value"),'original');
+    assert.ok(await js("document.querySelector('#analysisSource').options[1].disabled && cleanedData.length===0 && document.querySelector('#resultPanel').classList.contains('hidden')"));
+    assert.ok(await js("![...document.querySelector('#analysisX').options].some(o=>o.value==='시험점수')"));
+    await analyze('describe','value'); checks.push('new columns after data switch');
+    const cp949=path.join(artifacts,'cp949.csv');
+    await fs.writeFile(cp949,Buffer.from([0xbc,0xba,0xba,0xb0,44,0xc1,0xa1,0xbc,0xf6,10,0xb3,0xb2,44,49,10,0xbf,0xa9,44,50]));
+    await load(cp949); assert.deepEqual(await js('columns'),['성별','점수']);
+    await analyze('describe','점수'); checks.push('CP949 Korean CSV');
+    const missing=path.join(artifacts,'missing.csv'); await fs.writeFile(missing,'a,b\n1,\n,2');
+    await load(missing); await set('#missingMethod','drop'); await click('#runButton'); await set('#analysisSource','cleaned');
+    assert.equal(await js('cleanedData.length'),0); assert.ok(await js("document.querySelector('#analyzeButton').disabled")); await invalidated('empty cleaned dataset');
+    await load(sample); await analyze('regression','공부시간','시험점수');
+    win.setSize(1040,700); await js('window.scrollTo(0,0)'); await fs.writeFile(path.join(artifacts,'minimum-window.png'),(await win.capturePage()).toPNG());
+    assert.equal(await js('document.documentElement.scrollWidth > innerWidth'),false);
+    assert.deepEqual(errors,[]); assert.deepEqual(networkRequests,[]); assert.equal(openQueue.length+saveQueue.length,0);
+    const result={version:require('../package.json').version,checks,errors,networkRequests};
+    await fs.writeFile(path.join(artifacts,'smoke-result.json'),JSON.stringify(result,null,2));
+    console.log(`PASS: ${checks.length} Electron screen and save checks`);
+    app.exit(0);
+  } catch(error) {
+    await fs.mkdir(artifacts,{recursive:true});
+    await fs.writeFile(path.join(artifacts,'smoke-result.json'),JSON.stringify({error:error.stack},null,2));
+    console.error(error); app.exit(1);
+  } finally { dialog.showOpenDialog=originalOpen; dialog.showSaveDialog=originalSave; }
 });

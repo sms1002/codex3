@@ -9,6 +9,7 @@ __pycache__/
 .venv/
 venv/
 .pytest_cache/
+ai_stat_project/tests/artifacts/
 
 # Local secrets and settings
 .env

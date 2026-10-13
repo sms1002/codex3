@@ -70,13 +70,14 @@ function showToast(message) {
 }
 
 async function openCsv() {
-  const file = await window.desktopAPI.openCsv();
-  if (!file) return;
-  const parsed = Csv.parse(file.content);
-  if (!parsed.columns.length || !parsed.rows.length) {
-    showToast('읽을 수 있는 데이터가 없습니다.');
-    return;
-  }
+  try {
+    const file = await window.desktopAPI.openCsv();
+    if (!file) return;
+    const parsed = Csv.parse(file.content);
+    if (!parsed.columns.length || !parsed.rows.length) {
+      showToast('읽을 수 있는 데이터가 없습니다.');
+      return;
+    }
   columns = parsed.columns;
   sourceData = parsed.rows;
   cleanedData = [];
@@ -87,7 +88,10 @@ async function openCsv() {
   $('#dashboard').classList.remove('hidden');
   $('#resultPanel').classList.add('hidden');
   renderDashboard();
-  showToast('CSV 파일을 불러왔습니다.');
+    showToast('CSV 파일을 불러왔습니다.');
+  } catch (error) {
+    showToast(`CSV 불러오기 실패: ${error.message}`);
+  }
 }
 
 function renderDashboard() {
@@ -170,9 +174,13 @@ function preprocess() {
 }
 
 async function saveResult() {
-  const content = Csv.unparse(columns, cleanedData);
-  const savedPath = await window.desktopAPI.saveCsv({ content, defaultName: 'cleaned_data.csv' });
-  if (savedPath) showToast('전처리 결과를 저장했습니다.');
+  try {
+    const content = Csv.unparse(columns, cleanedData);
+    const savedPath = await window.desktopAPI.saveCsv({ content, defaultName: 'cleaned_data.csv' });
+    if (savedPath) showToast('전처리 결과를 저장했습니다.');
+  } catch (error) {
+    showToast(`CSV 저장 실패: ${error.message}`);
+  }
 }
 
 document.querySelectorAll('.nav-item').forEach((button) => button.addEventListener('click', () => {
