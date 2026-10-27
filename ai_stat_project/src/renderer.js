@@ -98,7 +98,9 @@ function renderDashboard() {
   const missingTotal = sourceData.reduce((sum, row) => sum + columns.filter((column) => isMissing(row[column])).length, 0);
   const numericColumns = columns.filter((column) => isNumericColumn(column));
   const outlierTotal = numericColumns.reduce((sum, column) => sum + outlierInfo(column).count, 0);
-  $('#metricCards').innerHTML = [['전체 행', sourceData.length.toLocaleString()], ['변수', columns.length.toLocaleString()], ['결측치', missingTotal.toLocaleString()], ['이상치 후보', outlierTotal.toLocaleString()]].map(([label, value]) => `<div class="metric"><span>${label}</span><strong>${value}</strong></div>`).join('');
+  $('#metricCards').innerHTML = [['기록 수 (행)', sourceData.length.toLocaleString()], ['항목 수 (열)', columns.length.toLocaleString()], ['빈칸 (결측치)', missingTotal.toLocaleString()], ['크거나 작은 값 후보', outlierTotal.toLocaleString()]].map(([label, value]) => `<div class="metric"><span>${label}</span><strong>${value}</strong></div>`).join('');
+  const dateColumns = columns.filter(isDateColumn);
+  $('#datasetNotice').textContent = dateColumns.length ? `“${dateColumns[0]}”처럼 날짜 열이 있습니다. 한 행이 하루 기록인지 확인하세요. 날짜가 이어지는 자료에서는 인접한 기록이 서로 영향을 줄 수 있어 검정의 p-value를 조심해서 읽어야 합니다. ID·지점 번호는 측정값으로 분석하지 마세요.` : '한 행이 사람·날짜·지역 중 무엇인지 먼저 확인하세요. 숫자로 적힌 ID나 집단 코드는 측정값이 아닐 수 있습니다. AI 추천도 열의 의미를 대신 판단하지는 못합니다.';
   $('#previewCount').textContent = `상위 ${Math.min(20, sourceData.length)}행`;
   $('#previewTable').innerHTML = table(columns, sourceData.slice(0, 20));
   const types = columns.map((column) => ({ 변수: column, '판별 유형': classifyColumn(column) }));

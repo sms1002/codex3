@@ -5,6 +5,10 @@ const path = require('node:path');
 const assert = require('node:assert/strict');
 const project = path.join(__dirname, '..');
 const artifacts = path.join(__dirname, 'artifacts');
+require('node:fs').mkdirSync(artifacts, { recursive: true });
+app.setPath('userData', path.join(artifacts, 'electron-profile'));
+app.disableHardwareAcceleration();
+app.commandLine.appendSwitch('disable-gpu');
 const sample = path.join(project, 'data', 'sample_student_data.csv');
 const openQueue = [], saveQueue = [], errors = [], networkRequests = [];
 const originalOpen = dialog.showOpenDialog, originalSave = dialog.showSaveDialog;
@@ -30,10 +34,15 @@ app.whenReady().then(async () => {
     async function load(file) { openQueue.push({ canceled: false, filePaths: [file] }); await click('#openButton'); await wait(`document.querySelector('#fileName').textContent===${JSON.stringify(path.basename(file))}`, `open ${file}`); }
     async function analyze(method,x,y) { await set('#analysisMethod',method); await set('#analysisX',x); if(y) await set('#analysisY',y); await click('#analyzeButton'); assert.equal(await js("document.querySelector('#analysisError').textContent"),'',method); assert.ok(await js("StatAnalysisUI.reportHtml()?.includes('data:image/png')"),method); }
     async function invalidated(name) { assert.equal(await js('StatAnalysisUI.reportHtml()'),null,name); assert.ok(await js("document.querySelector('#analysisResult').classList.contains('hidden')"),name); checks.push(name); }
-    assert.equal(require('../package.json').version,'1.1.0');
+    assert.equal(require('../package.json').version,'1.2.0');
     assert.equal(await js("typeof desktopAPI.openCsv + '/' + typeof desktopAPI.saveReport"),'function/function');
     await load(sample);
     assert.equal(await js('sourceData.length'),121);
+    await set('#aiQuestion','공부시간으로 시험점수를 예측하고 싶어'); await click('#aiRecommend');
+    assert.equal(await js("document.querySelector('#analysisMethod').value"),'regression');
+    assert.equal(await js("document.querySelector('#analysisX').value"),'공부시간');
+    assert.equal(await js("document.querySelector('#analysisY').value"),'시험점수');
+    assert.match(await js("document.querySelector('#aiAdvice').textContent"),/AI 후보/); checks.push('AI question chooses method and variables');
     for (const [method,x,y] of [['describe','시험점수'],['welch','성별','시험점수'],['anova','학년','시험점수'],['pearson','공부시간','시험점수'],['spearman','공부시간','시험점수'],['regression','공부시간','시험점수'],['chi','성별','학년']]) { await analyze(method,x,y); checks.push(method); }
     await analyze('regression','공부시간','시험점수');
     await js('window.scrollTo(0,0)'); await fs.writeFile(path.join(artifacts,'desktop-smoke.png'),(await win.capturePage()).toPNG());
@@ -85,6 +94,7 @@ app.whenReady().then(async () => {
     await wait("document.querySelector('#toast').textContent.includes('저장 실패')",'CSV write failure'); checks.push('CSV write failure');
     const second=path.join(artifacts,'second.csv'); await fs.writeFile(second,'group,value\nA,1\nB,2\nA,3\nB,4');
     await load(second); await invalidated('new dataset resets report');
+    assert.equal(await js("document.querySelector('#aiAdvice').textContent"),'');
     assert.equal(await js("document.querySelector('#analysisSource').value"),'original');
     assert.ok(await js("document.querySelector('#analysisSource').options[1].disabled && cleanedData.length===0 && document.querySelector('#resultPanel').classList.contains('hidden')"));
     assert.ok(await js("![...document.querySelector('#analysisX').options].some(o=>o.value==='시험점수')"));
@@ -93,6 +103,16 @@ app.whenReady().then(async () => {
     await fs.writeFile(cp949,Buffer.from([0xbc,0xba,0xba,0xb0,44,0xc1,0xa1,0xbc,0xf6,10,0xb3,0xb2,44,49,10,0xbf,0xa9,44,50]));
     await load(cp949); assert.deepEqual(await js('columns'),['성별','점수']);
     await analyze('describe','점수'); checks.push('CP949 Korean CSV');
+    const climate=path.join(artifacts,'climate.csv');
+    await fs.writeFile(climate,'날짜,지점,평균기온(℃),최고기온(℃)\n2025-01-01,108,1,4\n2025-01-02,108,2,5\n2025-01-03,108,3,6\n2025-01-04,108,4,7');
+    await load(climate);
+    assert.match(await js("document.querySelector('#datasetNotice').textContent"),/날짜/);
+    await set('#aiQuestion','평균기온의 분포와 중앙값을 보고 싶어'); await click('#aiRecommend');
+    assert.equal(await js("document.querySelector('#analysisMethod').value"),'describe');
+    assert.equal(await js("document.querySelector('#analysisX').value"),'평균기온(℃)');
+    await click('#analyzeButton'); assert.match(await js("document.querySelector('#metricHelp').textContent"),/가운데 값/); checks.push('AI avoids constant station code in date data');
+    await set('#aiQuestion','두 집단 평균을 비교하고 싶어'); await click('#aiRecommend');
+    assert.match(await js("document.querySelector('#aiAdvice').textContent"),/필요한 열을 찾지 못했습니다/); checks.push('AI reports unsupported group analysis');
     const missing=path.join(artifacts,'missing.csv'); await fs.writeFile(missing,'a,b\n1,\n,2');
     await load(missing); await set('#missingMethod','drop'); await click('#runButton'); await set('#analysisSource','cleaned');
     assert.equal(await js('cleanedData.length'),0); assert.ok(await js("document.querySelector('#analyzeButton').disabled")); await invalidated('empty cleaned dataset');

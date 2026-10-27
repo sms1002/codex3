@@ -1,44 +1,101 @@
-/* global StatAnalysis, sourceData, cleanedData, columns, $, escapeHtml, table, showToast */
+/* global StatAnalysis, AIRecommender, sourceData, cleanedData, columns, $, escapeHtml, table, showToast */
 (() => {
   'use strict';
   const titles = { describe: '기술통계', welch: '독립 두 집단 · Welch t검정', anova: '일원분산분석 (ANOVA)', pearson: 'Pearson 상관분석', spearman: 'Spearman 순위 상관분석', regression: '단순 선형회귀분석', chi: '카이제곱 독립성 검정' };
+  const methodHelp = {
+    describe: '숫자 한 열의 가운데 값과 퍼진 정도를 봅니다. 예: 시험 점수는 대체로 몇 점인가?',
+    welch: '서로 다른 두 그룹의 평균을 비교합니다. 예: A반과 B반 평균 점수가 다른가? 같은 사람의 전후 비교에는 맞지 않습니다.',
+    anova: '세 그룹 이상의 평균을 비교합니다. 차이가 보여도 어느 두 그룹이 다른지는 추가 분석이 필요합니다.',
+    pearson: '두 숫자가 직선에 가까운 형태로 함께 움직이는지 봅니다. 함께 움직여도 원인이라는 뜻은 아닙니다.',
+    spearman: '두 숫자의 정확한 값보다 높고 낮은 순서가 함께 움직이는지 봅니다.',
+    regression: '한 숫자가 바뀔 때 다른 숫자가 평균적으로 얼마나 달라지는지 직선으로 설명합니다. 예측은 관측 범위 안에서만 조심해서 사용하세요.',
+    chi: '두 분류 항목의 비율이 관련 있는지 봅니다. 예: 학년과 선호 과목. 인원 수를 적은 열을 분류 항목으로 고르면 안 됩니다.'
+  };
+  const metricDescriptions = {
+    '평균': '값을 모두 더해 개수로 나눈 값', '중앙값': '값을 순서대로 놓았을 때 가운데 값', '표준편차': '값들이 평균에서 얼마나 흩어져 있는지',
+    '평균 차이 (첫 집단 − 둘째)': '첫 그룹 평균에서 둘째 그룹 평균을 뺀 값',
+    '상관계수 r': '+1에 가까우면 함께 증가, -1에 가까우면 반대로 움직이며, 0에 가까우면 직선 관계가 약함',
+    '순위 상관계수 ρ': '높고 낮은 순서가 얼마나 함께 움직이는지',
+    '기울기': 'X가 1 늘 때 예측되는 Y의 변화량', '절편': 'X가 0일 때 직선이 예측하는 Y값',
+    '설명력 R²': '이 직선이 이 데이터의 Y 변화 중 설명하는 비율',
+    'p-value': '차이나 관계가 없다는 가정 아래 지금 같은 결과를 판단하는 수치. 효과의 크기나 원인 증명은 아님',
+    'Cohen\'s d (합동 표준편차)': '두 그룹 평균 차이를 값의 퍼짐에 비추어 나타낸 크기',
+    '효과 크기 η²': '그룹 구분과 관련된 값의 변동 비율', "Cramér's V": '두 분류 항목의 관계 정도',
+    't': '두 평균 차이를 값의 변동과 비교한 검정 수치', 'F': '그룹 간 차이를 그룹 내부 변동과 비교한 검정 수치',
+    'χ²': '관측된 분류별 인원과 관계가 없을 때 예상되는 인원의 차이', '자유도': '검정 계산에 쓰이는 값의 수에 관한 수치',
+    '집단 간 자유도': '그룹 수에 따른 계산값', '집단 내 자유도': '그룹 내부 자료 수에 따른 계산값'
+  };
   const fmt = v => v === null || v === undefined ? '—' : Math.abs(v) >= 1e7 || (v !== 0 && Math.abs(v) < .0001) ? v.toExponential(3) : v.toLocaleString('ko-KR', { maximumFractionDigits: 4 });
   const pFmt = p => p < .0001 ? '< 0.0001' : fmt(p);
   let lastResult = null;
   const rows = () => $('#analysisSource').value === 'cleaned' ? cleanedData : sourceData;
+  const normalized = value => String(value).toLowerCase().replace(/[\s_()[\]℃°·-]/g, '');
+  const unsuitableName = name => /(^|[_\s])(id|code)([_\s]|$)|번호|코드|지점|우편|날짜|일자|date|time/i.test(name);
+  function choices() {
+    const profiles = StatAnalysis.profile(rows(), columns);
+    const numeric = profiles.filter(p => p.numeric && p.unique > 1 && !unsuitableName(p.name)).sort((a, b) => Number(a.unique <= 10) - Number(b.unique <= 10));
+    const categories = profiles.filter(p => !unsuitableName(p.name) && p.unique >= 2 && p.unique <= 20 && rows().length > p.unique && (!p.numeric || p.unique <= 10));
+    return { profiles, numeric, categories };
+  }
   function invalidate() { lastResult = null; $('#analysisResult').classList.add('hidden'); $('#analysisError').textContent = ''; }
   function setOptions(selector, items, preferred) {
     const el = $(selector); el.innerHTML = items.map(p => `<option value="${escapeHtml(p.name)}">${escapeHtml(p.name)}${p.numeric ? ' · 숫자' : ''}</option>`).join('');
     if (items.some(p => p.name === preferred)) el.value = preferred;
   }
   function updateVariables() {
-    invalidate(); const method = $('#analysisMethod').value, profiles = StatAnalysis.profile(rows(), columns), numeric = profiles.filter(p => p.numeric);
+    invalidate(); const method = $('#analysisMethod').value, { numeric, categories } = choices();
     const grouped = ['welch', 'anova', 'chi'].includes(method);
     const previousX = $('#analysisX').value, previousY = $('#analysisY').value;
-    setOptions('#analysisX', grouped ? profiles : numeric, previousX);
-    setOptions('#analysisY', method === 'chi' ? profiles : numeric, previousY);
+    const groups = method === 'welch' ? categories.filter(p => p.unique === 2) : method === 'anova' ? categories.filter(p => p.unique >= 3) : categories;
+    setOptions('#analysisX', grouped ? groups : numeric, previousX);
+    setOptions('#analysisY', method === 'chi' ? categories : numeric, previousY);
     if ($('#analysisX').value === $('#analysisY').value) { const alternative = [...$('#analysisY').options].find(o => o.value !== $('#analysisX').value); if (alternative) $('#analysisY').value = alternative.value; }
     $('#analysisXLabel').textContent = grouped ? (method === 'chi' ? '범주형 변수 X' : '집단 변수') : method === 'regression' ? '설명 변수 X' : '수치형 변수 X';
     $('#analysisYLabel').textContent = method === 'chi' ? '범주형 변수 Y' : '결과 변수 Y (숫자)';
     $('#analysisYWrap').classList.toggle('hidden', method === 'describe');
-    $('#analysisHint').textContent = `${rows().length.toLocaleString()}행 기준 · ${method === 'describe' ? '평균, 중앙값, 표준편차, 사분위수와 분포를 확인합니다.' : '선택한 변수의 결측 행만 제외합니다. 검정은 유의수준 0.05를 사용하며 t검정·상관·회귀는 양측 검정입니다.'}${$('#analysisSource').value === 'cleaned' ? ' 결측치 대체·이상치 처리로 검정 결과가 바뀔 수 있으므로 원본 결과와 비교하세요.' : ''}`;
+    $('#methodHelp').textContent = methodHelp[method];
+    $('#analysisHint').textContent = `${rows().length.toLocaleString()}행 기준 · 분석에 필요한 값이 빈 행은 그 분석에서 제외합니다.${$('#analysisSource').value === 'cleaned' ? ' 데이터를 정리하면 결과가 바뀔 수 있으니 원본 결과와 비교하세요.' : ''}`;
     $('#analyzeButton').disabled = !rows().length || !$('#analysisX').value || (method !== 'describe' && !$('#analysisY').value);
   }
   function recommendations() {
-    const p = StatAnalysis.profile(rows(), columns), nums = p.filter(v => v.numeric), proposals = [];
-    if (nums.length) proposals.push({ method: 'describe', x: nums[0].name, text: `${nums[0].name} 분포 요약` });
-    // Prefer text categories, then low-cardinality numeric codes; users confirm roles.
-    const candidates = p.filter(v => v.unique >= 2 && v.unique <= 10).sort((a, b) => Number(a.numeric) - Number(b.numeric));
-    for (const g of candidates) {
-      const outcome = nums.find(v => v.name !== g.name && v.unique > g.unique);
-      if (outcome) { proposals.push({ method: g.unique === 2 ? 'welch' : 'anova', x: g.name, y: outcome.name, text: `${g.name}별 ${outcome.name} 평균 비교` }); break; }
-    }
-    const continuous = nums.filter(v => v.unique > 10), pair = continuous.length >= 2 ? continuous : nums;
-    if (pair.length >= 2) proposals.push({ method: 'pearson', x: pair[0].name, y: pair[1].name, text: `${pair[0].name} ↔ ${pair[1].name} 관계` });
-    if (candidates.length >= 2) proposals.push({ method: 'chi', x: candidates[0].name, y: candidates[1].name, text: `${candidates[0].name} × ${candidates[1].name} 범주 관계` });
+    const { numeric, categories } = choices(), proposals = [];
+    if (numeric.length) proposals.push({ method: 'describe', x: numeric[0].name, text: `${numeric[0].name} 요약` });
+    const group = categories.find(p => numeric.some(n => n.name !== p.name));
+    if (group) { const outcome = numeric.find(n => n.name !== group.name); proposals.push({ method: group.unique === 2 ? 'welch' : 'anova', x: group.name, y: outcome.name, text: `${group.name}별 ${outcome.name} 평균 비교` }); }
+    if (numeric.length >= 2) proposals.push({ method: 'pearson', x: numeric[0].name, y: numeric[1].name, text: `${numeric[0].name}와 ${numeric[1].name} 관계` });
+    if (categories.length >= 2) proposals.push({ method: 'chi', x: categories[0].name, y: categories[1].name, text: `${categories[0].name}와 ${categories[1].name} 분류 관계` });
     $('#recommendations').replaceChildren();
-    proposals.forEach(proposal => { const button = document.createElement('button'); button.className = 'secondary-button'; button.textContent = `추천 · ${proposal.text}`; button.addEventListener('click', () => { $('#analysisMethod').value = proposal.method; updateVariables(); $('#analysisX').value = proposal.x; if (proposal.y) $('#analysisY').value = proposal.y; }); $('#recommendations').append(button); });
-    if (proposals.length) { const note = document.createElement('small'); note.className = 'analysis-help'; note.textContent = '추천은 값의 유형·범주 수에 따른 후보입니다. 변수의 의미와 연구 설계를 확인하세요.'; $('#recommendations').append(note); }
+    proposals.forEach(proposal => { const button = document.createElement('button'); button.className = 'secondary-button'; button.textContent = `열 기준 빠른 선택 · ${proposal.text}`; button.addEventListener('click', () => { $('#analysisMethod').value = proposal.method; updateVariables(); $('#analysisX').value = proposal.x; if (proposal.y) $('#analysisY').value = proposal.y; }); $('#recommendations').append(button); });
+    if (proposals.length) { const note = document.createElement('small'); note.className = 'analysis-help'; note.textContent = '빠른 선택은 열의 종류만 보고 제안합니다. 위의 AI 질문 기능과 별개이며, 열의 실제 의미를 확인해야 합니다.'; $('#recommendations').append(note); }
+  }
+  function matching(items, question) {
+    const q = normalized(question);
+    return [...items].sort((a, b) => Number(q.includes(normalized(b.name))) - Number(q.includes(normalized(a.name))));
+  }
+  function planFor(method, question) {
+    const { numeric, categories } = choices();
+    const nums = matching(numeric, question), cats = matching(categories, question);
+    if (method === 'describe') return nums.length ? { x: nums[0].name } : null;
+    if (['pearson', 'spearman', 'regression'].includes(method)) return nums.length >= 2 ? { x: nums[0].name, y: nums[1].name } : null;
+    if (method === 'chi') return cats.length >= 2 ? { x: cats[0].name, y: cats[1].name } : null;
+    const groups = cats.filter(p => method === 'welch' ? p.unique === 2 : p.unique >= 3);
+    const group = groups[0], outcome = nums.find(p => p.name !== group?.name);
+    return group && outcome ? { x: group.name, y: outcome.name } : null;
+  }
+  function aiRecommend() {
+    const question = $('#aiQuestion').value.trim(), prediction = AIRecommender.classify(question), box = $('#aiAdvice');
+    if (!prediction) { box.className = 'ai-advice warning'; box.textContent = '질문을 조금 더 구체적으로 써 주세요. 예: “두 반의 평균 점수가 다른가?”'; return; }
+    const method = prediction.method, plan = planFor(method, question);
+    $('#analysisMethod').value = method; updateVariables();
+    if (!plan) {
+      box.className = 'ai-advice warning';
+      box.innerHTML = `<strong>AI 후보: ${escapeHtml(titles[method])}</strong>이 파일에서는 필요한 열을 찾지 못했습니다. ${escapeHtml(methodHelp[method])} 그룹·분류 열 또는 서로 다른 숫자 열이 필요한지 확인하세요. 다른 방법은 직접 선택할 수 있습니다.`;
+      return;
+    }
+    $('#analysisX').value = plan.x;
+    if (plan.y) $('#analysisY').value = plan.y;
+    box.className = 'ai-advice';
+    box.innerHTML = `<strong>AI 후보: ${escapeHtml(titles[method])}</strong>${escapeHtml(methodHelp[method])}<br>선택한 열: ${escapeHtml(plan.x)}${plan.y ? ' / ' + escapeHtml(plan.y) : ''}. 질문과 열의 뜻이 맞는지 확인한 뒤 분석을 실행하세요.`;
   }
   function interpretation(r) {
     const lines = [];
@@ -95,8 +152,9 @@
       result.source = $('#analysisSource').value === 'cleaned' ? '전처리된 데이터' : '원본 데이터'; result.fileName = $('#fileName').textContent; result.created = new Date().toLocaleString('ko-KR');
       if ($('#analysisSource').value === 'cleaned') result.warnings.unshift('전처리된 데이터로 분석했습니다. 결측치 대체, 중복 제거 및 이상치 처리가 추정치와 p-value에 영향을 줄 수 있습니다.');
       $('#analysisTitle').textContent = titles[result.method];
-      $('#analysisMeta').textContent = `${result.source} · 전체 ${result.total}행 / 분석 ${result.n}행 / 제외 ${result.excluded}행 · ${result.created}`;
+      $('#analysisMeta').textContent = `${result.source} · 전체 ${result.total}행 중 ${result.n}행을 계산에 사용 (${result.excluded}행 제외) · ${result.created}`;
       $('#analysisMetrics').innerHTML = result.metrics.map(([name, value]) => `<div class="metric"><span>${escapeHtml(name)}</span><strong>${name === 'p-value' ? pFmt(value) : fmt(value)}</strong></div>`).join('');
+      $('#metricHelp').innerHTML = `<strong>화면의 숫자 뜻</strong><br>${result.metrics.map(([name]) => `${escapeHtml(name)}: ${escapeHtml(metricDescriptions[name] || '분석 방법에서 계산한 결과 수치')}`).join('<br>')}`;
       $('#analysisInterpretation').innerHTML = interpretation(result).map(line => `<p>${escapeHtml(line)}</p>`).join('');
       $('#analysisTable').innerHTML = resultTable(result);
       $('#analysisWarnings').innerHTML = ['확인 사항 · 분석 가정은 자동 검증되지 않았습니다.', ...result.warnings].map(line => `<p>${escapeHtml(line)}</p>`).join('');
@@ -106,14 +164,15 @@
   function reportHtml() {
     if (!lastResult) return null;
     const r = lastResult, e = escapeHtml;
-    return `<!doctype html><html lang="ko"><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'"><title>${e(titles[r.method])} 보고서</title><style>body{font:15px/1.7 sans-serif;max-width:1000px;margin:40px auto;padding:20px;color:#172c40}table{border-collapse:collapse;width:100%;font-size:13px}td,th{border:1px solid #cbd5df;padding:8px;text-align:left}img{width:100%}.metric{display:inline-block;margin:12px;padding:12px;border:1px solid #ccd5df}.metric strong{display:block}.interpretation{background:#edf7f2;padding:18px}h1{font-size:26px}@media print{body{margin:0}table,img{break-inside:avoid}}</style></head><body><h1>${e(titles[r.method])} 보고서</h1><p>파일: ${e(r.fileName)}<br>변수: ${e(r.x)}${r.method !== 'describe' ? ' / ' + e(r.y) : ''}<br>${e($('#analysisMeta').textContent)}</p><p>StatPilot 1.1 · 규칙 기반 자동 해석 · ${r.p !== undefined ? '유의수준 0.05 · ' : ''}데이터는 PC 내부에서 계산했습니다.</p>${$('#analysisMetrics').innerHTML}<div class="interpretation">${$('#analysisInterpretation').innerHTML}</div><img alt="${e($('#chartCaption').textContent)}" src="${$('#analysisChart').toDataURL('image/png')}"><p>${e($('#chartCaption').textContent)}</p>${resultTable(r)}<h2>확인 사항</h2>${$('#analysisWarnings').innerHTML}</body></html>`;
+    return `<!doctype html><html lang="ko"><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'"><title>${e(titles[r.method])} 보고서</title><style>body{font:15px/1.7 sans-serif;max-width:1000px;margin:40px auto;padding:20px;color:#172c40}table{border-collapse:collapse;width:100%;font-size:13px}td,th{border:1px solid #cbd5df;padding:8px;text-align:left}img{width:100%}.metric{display:inline-block;margin:12px;padding:12px;border:1px solid #ccd5df}.metric strong{display:block}.interpretation{background:#edf7f2;padding:18px}h1{font-size:26px}@media print{body{margin:0}table,img{break-inside:avoid}}</style></head><body><h1>${e(titles[r.method])} 보고서</h1><p>파일: ${e(r.fileName)}<br>변수: ${e(r.x)}${r.method !== 'describe' ? ' / ' + e(r.y) : ''}<br>${e($('#analysisMeta').textContent)}</p><p>StatPilot 1.2 · ${e(methodHelp[r.method])}<br>결과 해석은 계산값에 따른 규칙 기반 문장입니다. ${r.p !== undefined ? '유의수준 0.05 · ' : ''}데이터는 PC 내부에서 계산했습니다.</p>${$('#analysisMetrics').innerHTML}<div class="interpretation">${$('#metricHelp').innerHTML}</div><div class="interpretation">${$('#analysisInterpretation').innerHTML}</div><img alt="${e($('#chartCaption').textContent)}" src="${$('#analysisChart').toDataURL('image/png')}"><p>${e($('#chartCaption').textContent)}</p>${resultTable(r)}<h2>확인 사항</h2>${$('#analysisWarnings').innerHTML}</body></html>`;
   }
+  $('#aiRecommend').addEventListener('click', aiRecommend);
   $('#exportAnalysis').addEventListener('click', async () => { try { const content = reportHtml(); if (content && await window.desktopAPI.saveReport({ content })) showToast('분석 보고서를 저장했습니다.'); } catch (error) { $('#analysisError').textContent = `보고서 저장 실패: ${error.message}`; } });
   $('#analysisMethod').addEventListener('change', updateVariables);
   $('#analysisSource').addEventListener('change', () => { updateVariables(); recommendations(); });
   ['#analysisX', '#analysisY'].forEach(id => $(id).addEventListener('change', invalidate));
   $('#analyzeButton').addEventListener('click', analyze);
-  window.addEventListener('dataset:loaded', () => { $('#analysisSource').value = 'original'; $('#analysisSource').options[1].disabled = true; updateVariables(); recommendations(); });
+  window.addEventListener('dataset:loaded', () => { $('#analysisSource').value = 'original'; $('#analysisSource').options[1].disabled = true; $('#aiAdvice').textContent = ''; $('#aiQuestion').value = ''; updateVariables(); recommendations(); });
   window.addEventListener('dataset:cleaned', () => { $('#analysisSource').options[1].disabled = false; invalidate(); updateVariables(); recommendations(); });
   window.StatAnalysisUI = { analyze, reportHtml, updateVariables };
 })();
