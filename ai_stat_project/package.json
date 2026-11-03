@@ -1,6 +1,6 @@
 {
   "name": "ai-stat-desktop",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "오프라인 학습 모델이 분석 방법을 추천하는 통계 분석 데스크톱 앱",
   "main": "main.js",
   "author": "AI Stat Project",

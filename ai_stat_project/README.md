@@ -1,4 +1,4 @@
-# StatPilot · AI 통계 분석 도우미 1.2.0
+# StatPilot · AI 통계 분석 도우미 1.2.1
 
 **프로젝트 주제:** AI를 활용한 데이터 기반 통계 분석 방법 자동 선택 및 결과 해석 시스템 개발
 
@@ -6,7 +6,9 @@ Windows에서 인터넷 없이 CSV를 살펴보고 통계 분석을 하는 무�
 
 ## 실행
 
-`release/AI-Stat-Desktop-1.2.0/AI-Stat-Desktop.exe`를 실행합니다. 다른 Windows PC에서는 `release/AI-Stat-Desktop-Windows-x64-v1.2.0.zip`을 **전체 압축 해제**하고 그 안의 실행 파일을 엽니다. ZIP 안의 DLL과 `resources` 폴더를 함께 두어야 합니다. Python·Node.js·AI 모델을 따로 설치할 필요는 없습니다.
+`release/AI-Stat-Desktop-1.2.1/AI-Stat-Desktop.exe`를 실행합니다. 다른 Windows PC에서는 `release/AI-Stat-Desktop-Windows-x64-v1.2.1.zip`을 **전체 압축 해제**하고 그 안의 실행 파일을 엽니다. ZIP 안의 DLL과 `resources` 폴더를 함께 두어야 합니다. Python·Node.js·AI 모델을 따로 설치할 필요는 없습니다.
+
+1.2.1에서는 앱 화면과 그래프를 글자가 잘 보이는 밝은 색으로 바꿨습니다. 통계 계산과 AI 추천 방식은 1.2.0과 같습니다.
 
 ## 처음 쓰는 사람을 위한 순서
 
@@ -46,4 +48,4 @@ python tests/compare_scipy.py node
 ./node_modules/.bin/electron-builder.CMD --win dir --x64
 ```
 
-생성된 `dist/win-unpacked` 전체를 버전별 `release` 폴더에 담고 ZIP으로 묶습니다. `release`는 Git에서 제외되므로 실행 파일과 ZIP은 GitHub Release에 별도 첨부합니다. 이전 Python 버전의 `app.py`와 `modules/`는 1.2.0 데스크톱 앱 실행에 사용되지 않습니다.
+생성된 `dist/win-unpacked` 전체를 버전별 `release` 폴더에 담고 ZIP으로 묶습니다. `release`는 Git에서 제외되므로 실행 파일과 ZIP은 GitHub Release에 별도 첨부합니다. 이전 Python 버전의 `app.py`와 `modules/`는 이 데스크톱 앱 실행에 사용되지 않습니다.

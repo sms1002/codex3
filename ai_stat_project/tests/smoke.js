@@ -34,7 +34,7 @@ app.whenReady().then(async () => {
     async function load(file) { openQueue.push({ canceled: false, filePaths: [file] }); await click('#openButton'); await wait(`document.querySelector('#fileName').textContent===${JSON.stringify(path.basename(file))}`, `open ${file}`); }
     async function analyze(method,x,y) { await set('#analysisMethod',method); await set('#analysisX',x); if(y) await set('#analysisY',y); await click('#analyzeButton'); assert.equal(await js("document.querySelector('#analysisError').textContent"),'',method); assert.ok(await js("StatAnalysisUI.reportHtml()?.includes('data:image/png')"),method); }
     async function invalidated(name) { assert.equal(await js('StatAnalysisUI.reportHtml()'),null,name); assert.ok(await js("document.querySelector('#analysisResult').classList.contains('hidden')"),name); checks.push(name); }
-    assert.equal(require('../package.json').version,'1.2.0');
+    assert.equal(require('../package.json').version,'1.2.1');
     assert.equal(await js("typeof desktopAPI.openCsv + '/' + typeof desktopAPI.saveReport"),'function/function');
     await load(sample);
     assert.equal(await js('sourceData.length'),121);
